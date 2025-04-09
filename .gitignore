@@ -1,0 +1,48 @@
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 本地环境
+.env
+.venv
+venv/
+ENV/
+
+# IDE文件
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 测试日志和结果
+data/logs/
+data/results/
+data/screenshots/
+
+# 配置文件(排除配置示例外)
+config/config.ini
+
+# 代理历史记录
+data/proxy_history.json
+
+# 运行时临时文件
+*.log
+*.lock
