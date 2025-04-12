@@ -125,3 +125,14 @@ class ConfigLoader:
             "file_enabled": self.config.getboolean('logging', 'file_enabled', fallback=True),
             "file_path": self.config.get('logging', 'file_path', fallback='data/logs/rba_test.log')
         }
+    
+    def get_dynamic_selectors(self):
+        """获取动态元素选择器配置"""
+        if not self.config.has_section('dynamic_selectors'):
+            return []
+
+        selectors = []
+        for key, value in self.config.items('dynamic_selectors'):
+            selectors.append(value)
+
+        return selectors

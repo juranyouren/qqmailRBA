@@ -19,6 +19,24 @@ def setup_environment():
     os.makedirs("data/logs", exist_ok=True)
     os.makedirs("data/results", exist_ok=True)
 
+def validate_page_structure(page, dynamic_selectors):
+    """验证页面结构是否符合预期"""
+    logger = logging.getLogger('page_validator')
+    logger.info("开始验证页面结构")
+
+    for selector in dynamic_selectors:
+        try:
+            count = page.locator(selector).count()
+            logger.info(f"选择器 {selector}: 找到 {count} 个元素")
+            if count > 0:
+                try:
+                    text = page.locator(selector).first.inner_text()
+                    logger.info(f"第一个 {selector} 元素的文本: {text}")
+                except Exception as e:
+                    logger.warning(f"无法获取选择器 {selector} 的文本: {str(e)}")
+        except Exception as e:
+            logger.warning(f"检查选择器 {selector} 时出错: {str(e)}")
+
 def perform_login_test(browser_type, config, user_type="normal"):
     """执行登录测试
     
@@ -65,6 +83,10 @@ def perform_login_test(browser_type, config, user_type="normal"):
         # 增加页面稳定等待时间
         page.wait_for_load_state('networkidle')
         behavior.random_delay(5.0, 8.0)  # 增加延迟时间，确保页面完全加载
+        
+        # 验证页面结构
+        dynamic_selectors = config.get_dynamic_selectors()
+        validate_page_structure(page, dynamic_selectors)
         
         # 查看页面上所有可能的登录按钮并记录
         logger.info("分析页面登录元素")
@@ -137,12 +159,61 @@ def perform_login_test(browser_type, config, user_type="normal"):
         # 首先点击页面上的"密码登录"按钮
         logger.info("尝试点击页面上的密码登录按钮")
         try:
-            # 等待密码登录按钮出现并点击
-            page.wait_for_selector('a#switcher_plogin', timeout=10000)
-            logger.info("找到页面上的密码登录按钮")
-            page.click('a#switcher_plogin')
-            logger.info("已点击页面上的密码登录按钮")
-            behavior.random_delay(1.0, 2.0)  # 点击后稍等片刻
+            # 尝试使用JavaScript方式查找和点击密码登录按钮
+            logger.info("尝试使用JavaScript查找和点击密码登录按钮")
+            try:
+                # 尝试在主页面查找密码登录按钮
+                has_button = page.evaluate("""
+                    () => {
+                        const btn = document.getElementById("switcher_plogin");
+                        if (btn) {
+                            console.log("在主页面找到密码登录按钮");
+                            return true;
+                        }
+                        return false;
+                    }
+                """)
+                
+                if has_button:
+                    logger.info("在主页面找到密码登录按钮，尝试点击")
+                    page.evaluate("document.getElementById('switcher_plogin').click()")
+                    logger.info("已通过JavaScript点击密码登录按钮")
+                    behavior.random_delay(1.0, 2.0)
+                else:
+                    logger.info("在主页面未找到密码登录按钮，尝试在iframe中查找")
+                    
+                    # 尝试在登录iframe中查找
+                    login_frame = page.frame('iframe#login_frame')
+                    if login_frame:
+                        has_button_in_frame = login_frame.evaluate("""
+                            () => {
+                                const btn = document.getElementById("switcher_plogin");
+                                if (btn) {
+                                    console.log("在iframe中找到密码登录按钮");
+                                    btn.click();
+                                    return true;
+                                }
+                                return false;
+                            }
+                        """)
+                        
+                        if has_button_in_frame:
+                            logger.info("已通过JavaScript在iframe中点击密码登录按钮")
+                            behavior.random_delay(1.0, 2.0)
+                        else:
+                            logger.warning("在iframe中未找到密码登录按钮")
+                    else:
+                        logger.warning("未找到登录iframe")
+            except Exception as js_error:
+                logger.warning(f"使用JavaScript查找密码登录按钮时出错: {str(js_error)}")
+            
+            # 如果JavaScript方法失败，回退到原始方法
+            # 修改 iframe 处理部分的代码
+            login_frame = page.frame('iframe#login_frame')  # 获取 Frame 对象
+            if login_frame:
+                login_frame.locator('a#switcher_plogin').wait_for(state='visible', timeout=15000)
+                login_frame.locator('a#switcher_plogin').click()  # 添加 'a' 标签选择器
+                behavior.random_delay(1.0, 2.0)  # 点击后稍等片刻
         except Exception as e:
             logger.warning(f"无法找到或点击页面上的密码登录按钮: {str(e)}")
             # 继续尝试查找登录框，因为有些情况下可能不需要点击此按钮
@@ -288,6 +359,67 @@ def perform_login_test(browser_type, config, user_type="normal"):
                     except Exception as e:
                         logger.warning(f"使用备选选择器 {selector} 时出错: {str(e)}")
                         continue
+            
+            # 遍历所有 iframe，尝试找到目标元素
+            logger.info("开始遍历所有 iframe，查找密码登录按钮")
+            all_iframes = page.frames
+            for iframe in all_iframes:
+                try:
+                    logger.info(f"检查 iframe: {iframe.url}")
+                    if iframe.url and "oauth2.0/authorize" in iframe.url:
+                        logger.info("找到目标 iframe，尝试查找密码登录按钮")
+
+                        # 切换到密码登录方式
+                        password_login_button = iframe.locator('a#switcher_plogin')
+                        if password_login_button.count() > 0:
+                            password_login_button.click()
+                            logger.info("成功点击密码登录按钮")
+                            behavior.random_delay(1.0, 2.0)
+                            break
+                        else:
+                            logger.warning("目标 iframe 中未找到密码登录按钮")
+                except Exception as e:
+                    logger.warning(f"处理 iframe 时出错: {str(e)}")
+
+            else:
+                logger.error("未能在任何 iframe 中找到密码登录按钮")
+                page.screenshot(path='data/screenshots/failed_to_find_password_login.png')
+            
+            # 如果尝试查找标准iframe失败，尝试oauth认证iframe
+            try:
+                logger.info("处理QQ OAuth iframe...")
+                page.wait_for_selector('iframe[src*="oauth2.0/authorize"]', timeout=40000)
+                oauth_frame = page.frame_locator('iframe[src*="oauth2.0/authorize"]')
+
+                # 切换到密码登录
+                oauth_frame.locator('a:has-text("帐号密码登录")').wait_for(state='visible', timeout=20000)
+                oauth_frame.locator('a:has-text("帐号密码登录")').click()
+                behavior.random_delay(1.0, 2.0)
+
+                # 输入账号
+                oauth_frame.locator('input#u').fill(credentials['email'].split('@')[0])
+                behavior.random_delay(0.5, 1.0)
+
+                # 输入密码
+                oauth_frame.locator('input#p').fill(credentials['password'])
+                behavior.random_delay(0.5, 1.0)
+
+                # 点击登录
+                oauth_frame.locator('button#login_button').click()
+                page.wait_for_load_state('networkidle')
+
+                # 检查安全验证
+                if page.locator('text=安全验证').count() > 0:
+                    logger.warning("RBA机制触发：需要安全验证")
+                    return {"success": False, "rba_triggered": True}
+                else:
+                    logger.info("登录成功")
+                    return {"success": True, "rba_triggered": False}
+
+            except Exception as e:
+                logger.error(f"OAuth登录失败: {str(e)}")
+                page.screenshot(path='data/screenshots/oauth_error.png')
+                return {"success": False, "rba_triggered": False}
             
             # 如果尝试查找标准iframe失败，尝试直接在页面上查找登录表单
             logger.info("尝试直接在页面上查找登录表单")
